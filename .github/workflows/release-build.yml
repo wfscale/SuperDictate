@@ -1,0 +1,37 @@
+name: release build
+
+# Builds the signed .app bundle on a clean Apple-hosted runner and uploads
+# SuperDictate.zip as a workflow artifact. The release itself is published
+# separately, so the archive's SHA-256 can be pinned into install.sh and
+# update.json before the tag is cut.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift self-tests
+        run: swift run -c debug --package-path swift Parakey --self-test all
+      - name: Build app bundle
+        run: ./scripts/build-app.sh "$RUNNER_TEMP/SuperDictate.app"
+      - name: Verify app bundle
+        run: |
+          test -x "$RUNNER_TEMP/SuperDictate.app/Contents/MacOS/SuperDictate"
+          codesign --verify --deep --strict "$RUNNER_TEMP/SuperDictate.app"
+      - name: Package archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/SuperDictate.app" "$RUNNER_TEMP/release/SuperDictate.zip"
+          shasum -a 256 "$RUNNER_TEMP/release/SuperDictate.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SuperDictate
+          path: ${{ runner.temp }}/release/SuperDictate.zip
+          if-no-files-found: error
